@@ -1,145 +1,80 @@
 #!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-
 import cv2
 import mediapipe as mp
-import numpy as np
-import time
-
+import math
 
 class HandControlNode(Node):
-
     def __init__(self):
         super().__init__('hand_control_node')
+        self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.timer = self.create_timer(0.033, self.run_loop)
 
-        # Publisher
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-
-        # Camera
+        # MediaPipe & CV Setup
         self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            self.get_logger().error("Cannot open camera")
-            exit()
-
-        # MediaPipe
         self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=1,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7
-        )
+        self.hands = self.mp_hands.Hands(min_detection_confidence=0.7)
         self.mp_draw = mp.solutions.drawing_utils
 
-        # Timer (30 Hz)
-        self.timer = self.create_timer(0.03, self.timer_callback)
+        # Configuration
+        self.sensitivity = 0.6  # Adjust to change steering responsiveness
+        self.linear_speed = 0.2
 
-        # Safety
-        self.last_hand_time = time.time()
-        self.timeout_sec = 0.5
-
-        self.get_logger().info("Hand control node started")
-
-
-    def count_fingers(self, hand_landmarks):
-        """
-        Counts extended fingers (ignores thumb)
-        """
-        finger_tips = [8, 12, 16, 20]
-        finger_pips = [6, 10, 14, 18]
-
-        count = 0
-        for tip, pip in zip(finger_tips, finger_pips):
-            if hand_landmarks.landmark[tip].y < hand_landmarks.landmark[pip].y:
-                count += 1
-        return count
-
-
-    def timer_callback(self):
-        ret, frame = self.cap.read()
-        if not ret:
-            return
+    def run_loop(self):
+        success, frame = self.cap.read()
+        if not success: return
 
         frame = cv2.flip(frame, 1)
         h, w, _ = frame.shape
-
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         result = self.hands.process(rgb)
-
+        
         twist = Twist()
-        hand_detected = False
 
         if result.multi_hand_landmarks:
-            hand_detected = True
-            self.last_hand_time = time.time()
+            lms = result.multi_hand_landmarks[0]
+            self.mp_draw.draw_landmarks(frame, lms, self.mp_hands.HAND_CONNECTIONS)
 
-            hand_landmarks = result.multi_hand_landmarks[0]
-            self.mp_draw.draw_landmarks(
-                frame,
-                hand_landmarks,
-                self.mp_hands.HAND_CONNECTIONS
-            )
+            # 1. Steering Logic (Angle between Wrist 0 and Middle Tip 12)
+            wrist = lms.landmark[0]
+            tip = lms.landmark[12]
+            angle_rad = math.atan2(tip.x - wrist.x, -(tip.y - wrist.y))
+            
+            # Apply sensitivity and publish
+            twist.angular.z = -angle_rad * (self.sensitivity * 5.0)
 
-            # Count fingers
-            finger_count = self.count_fingers(hand_landmarks)
-
-            # Palm center (wrist landmark)
-            palm_x = hand_landmarks.landmark[0].x  # normalized 0–1
-
-            # Gesture logic
-            if finger_count >= 4:
+            # 2. Throttle Logic (Finger count)
+            # Counts tips (8,12,16,20) above their pips (6,10,14,18)
+            fingers = sum(1 for t, p in zip([8,12,16,20], [6,10,14,18]) 
+                         if lms.landmark[t].y < lms.landmark[p].y)
+            
+            gesture = "FIST"
+            if fingers >= 3:
+                twist.linear.x = self.linear_speed
                 gesture = "OPEN HAND"
-                twist.linear.x = 0.2
-            elif finger_count == 0:
-                gesture = "FIST"
-                twist.linear.x = 0.0
-            else:
-                gesture = "UNKNOWN"
-                twist.linear.x = 0.0
 
-            # Steering logic
-            if palm_x < 0.4:
-                twist.angular.z = 0.6
-            elif palm_x > 0.6:
-                twist.angular.z = -0.6
-            else:
-                twist.angular.z = 0.0
+            # 3. Visualization
+            deg = math.degrees(angle_rad)
+            cv2.line(frame, (int(wrist.x*w), int(wrist.y*h)), (int(tip.x*w), int(tip.y*h)), (255,0,0), 3)
+            cv2.putText(frame, f"Gesture: {gesture}", (10, 50), 1, 2, (0, 255, 0), 2)
+            cv2.putText(frame, f"Angle: {deg:.1f} deg", (10, 90), 1, 2, (255, 255, 0), 2)
 
-            # Display info
-            cv2.putText(
-                frame,
-                f"Gesture: {gesture}",
-                (10, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2
-            )
-
-        # Safety stop if hand disappears
-        if not hand_detected:
-            if time.time() - self.last_hand_time > self.timeout_sec:
-                twist = Twist()
-
-        self.cmd_pub.publish(twist)
-
-        cv2.imshow("Hand Control", frame)
+        self.publisher_.publish(twist)
+        cv2.imshow("Hand Control & Visualizer", frame)
         cv2.waitKey(1)
-
 
 def main():
     rclpy.init()
     node = HandControlNode()
-    rclpy.spin(node)
-
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     node.cap.release()
     cv2.destroyAllWindows()
-    node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
