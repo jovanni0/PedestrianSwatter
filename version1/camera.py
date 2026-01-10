@@ -18,9 +18,9 @@ class HandControlNode(Node):
         self.hands = self.mp_hands.Hands(min_detection_confidence=0.7, max_num_hands=1)
         self.mp_draw = mp.solutions.drawing_utils
 
-        # Configuration
-        self.sensitivity = 0.6 
-        self.max_speed = 0.26
+        # Config
+        self.sensitivity = 0.2 
+        self.max_speed = 0.8
         self.deadzone_deg = 5.0
 
     def run_loop(self):
@@ -36,39 +36,41 @@ class HandControlNode(Node):
             lms = result.multi_hand_landmarks[0].landmark
             self.mp_draw.draw_landmarks(frame, result.multi_hand_landmarks[0], self.mp_hands.HAND_CONNECTIONS)
 
-            # 1. Modulation Logic: Distance from Wrist (0) to Middle Finger Tip (12)
+            # 1. Wrist and Points
             wrist = lms[0]
-            middle_tip = lms[12]
-            dist = math.sqrt((middle_tip.x - wrist.x)**2 + (middle_tip.y - wrist.y)**2)
-            
-            # Map distance (closed ~0.15 to open ~0.45) to speed
-            # These values might need slight tuning based on your distance from camera
-            speed = np.interp(dist, [0.2, 0.45], [0.0, self.max_speed])
-            
-            # 2. Steering Logic
-            angle_rad = math.atan2(middle_tip.x - wrist.x, -(middle_tip.y - wrist.y))
+            tips = [8, 12, 16, 20]
+            knuckles = [5, 9, 13, 17]
+
+            # Average distance to Knuckles (The "Fist" baseline)
+            base_dist = sum([math.sqrt((lms[i].x - wrist.x)**2 + (lms[i].y - wrist.y)**2) for i in knuckles]) / 4
+            # Average distance to Tips
+            tip_dist = sum([math.sqrt((lms[i].x - wrist.x)**2 + (lms[i].y - wrist.y)**2) for i in tips]) / 4
+
+            # 2. Throttle: Start at base_dist, Max at base_dist * 1.8 (fully extended)
+            # This ensures that a fist (tips near knuckles) is 0 speed.
+            speed = np.interp(tip_dist, [base_dist, base_dist * 1.8], [0.0, self.max_speed])
+
+            # 3. Steering
+            angle_rad = math.atan2(lms[12].x - wrist.x, -(lms[12].y - wrist.y))
             angle_deg = math.degrees(angle_rad)
 
-            # 3. Stop Condition (Fist check)
-            fingers_open = sum(1 for t, p in zip([8,12,16,20], [6,10,14,18]) if lms[t].y < lms[p].y)
-            
-            if fingers_open > 0:
+            # 4. Apply and Publish
+            if speed > 0.01:
                 twist.linear.x = float(speed)
                 if abs(angle_deg) > self.deadzone_deg:
                     twist.angular.z = -angle_rad * (self.sensitivity * 5.0)
-                state_text = f"Moving: {int((speed/self.max_speed)*100)}%"
-                color = (0, 255, 0)
-            else:
-                state_text = "STOPPED (FIST)"
-                color = (0, 0, 255)
-
+            
             # Visuals
-            cv2.putText(frame, state_text, (10, 50), 1, 2, color, 2)
+            percent = int((twist.linear.x / self.max_speed) * 100)
+            cv2.putText(frame, f"Throttle: {percent}%", (10, 50), 1, 2, (0, 255, 0), 2)
             cv2.putText(frame, f"Steer: {angle_deg:.1f} deg", (10, 90), 1, 2, (255, 255, 0), 2)
-            cv2.line(frame, (int(wrist.x*w), int(wrist.y*h)), (int(middle_tip.x*w), int(middle_tip.y*h)), (255, 0, 0), 3)
+            
+            # Draw baseline (knuckles) for reference
+            for k in knuckles:
+                cv2.circle(frame, (int(lms[k].x*w), int(lms[k].y*h)), 5, (255, 0, 255), -1)
 
         self.publisher_.publish(twist)
-        cv2.imshow("Modulated Control", frame)
+        cv2.imshow("Adaptive Hand Control", frame)
         cv2.waitKey(1)
 
 def main():
