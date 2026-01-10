@@ -30,6 +30,11 @@ class HandControlNode(Node):
         self.last_toggle_time = 0
         self.cooldown_duration = 2.0 
 
+        # Smoothing & State
+        self.prev_linear = 0.0
+        self.prev_angular = 0.0
+        self.alpha = 0.2  # Smoothing factor (0.1 = very smooth, 1.0 = no smoothing)
+
     def run_loop(self):
         success, frame = self.cap.read()
         if not success: return
@@ -41,6 +46,10 @@ class HandControlNode(Node):
 
         # Permanent HUD: Black Top Bar
         cv2.rectangle(frame, (0, 0), (w, 60), (0, 0, 0), -1)
+
+        # Suggestion 4: Visual separator for Reverse (at 70% height)
+        cv2.line(frame, (0, int(h * 0.7)), (w, int(h * 0.7)), (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(frame, "REVERSE ZONE", (10, int(h * 0.7) + 20), 1, 1, (255, 255, 255), 1)
 
         if result.multi_hand_landmarks:
             lms = result.multi_hand_landmarks[0].landmark
@@ -72,6 +81,8 @@ class HandControlNode(Node):
                 base_dist = sum([math.sqrt((lms[i].x-wrist.x)**2 + (lms[i].y-wrist.y)**2) for i in knuckles]) / 4
                 tip_dist = sum([math.sqrt((lms[i].x-wrist.x)**2 + (lms[i].y-wrist.y)**2) for i in tips]) / 4
 
+                # Suggestion 4: Vertical Reverse (Wrist in bottom 30% of image)
+                direction = -1.0 if wrist.y > 0.7 else 1.0
                 speed = np.interp(tip_dist, [base_dist * 1.1, base_dist * 1.8], [0.0, self.max_speed])
                 
                 # Capped Steering
@@ -81,15 +92,23 @@ class HandControlNode(Node):
                 # Clip input to the limit and scale sensitivity for faster response
                 capped_angle_deg = np.clip(angle_deg, -self.hand_limit_deg, self.hand_limit_deg)
                 
-                if speed > 0.01:
-                    twist.linear.x = float(speed)
-                    twist.angular.z = -math.radians(capped_angle_deg) * (self.sensitivity * 8.0)
+                # Calculation with smoothing (Suggestion 2)
+                target_linear = float(speed * direction)
+                target_angular = -math.radians(capped_angle_deg) * (self.sensitivity * 8.0)
+                
+                twist.linear.x = (self.alpha * target_linear) + ((1 - self.alpha) * self.prev_linear)
+                twist.angular.z = (self.alpha * target_angular) + ((1 - self.alpha) * self.prev_angular)
 
                 # Active HUD elements
-                speed_pct = int((speed / self.max_speed) * 100)
+                speed_pct = int((abs(twist.linear.x) / self.max_speed) * 100)
                 steer_pct = int((capped_angle_deg / self.hand_limit_deg) * 100)
-                cv2.putText(frame, f"SPD: {speed_pct}%", (w - 320, 40), 1, 1.8, (255, 255, 255), 2)
+                dir_label = "REV" if direction < 0 else "FWD"
+                cv2.putText(frame, f"{dir_label} {speed_pct}%", (w - 320, 40), 1, 1.8, (255, 255, 255), 2)
                 cv2.putText(frame, f"STR: {steer_pct}%", (w - 160, 40), 1, 1.8, (255, 255, 255), 2)
+
+        # Suggestion 1: Deadman's Switch (Implicitly stops if no landmarks or paused)
+        self.prev_linear = twist.linear.x
+        self.prev_angular = twist.angular.z
 
         # Permanent Status Display
         status_text = "LOCKED" if self.is_paused else "ACTIVE"
