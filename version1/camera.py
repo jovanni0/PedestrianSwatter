@@ -5,6 +5,7 @@ from geometry_msgs.msg import Twist
 import cv2
 import mediapipe as mp
 import math
+import numpy as np
 
 class HandControlNode(Node):
     def __init__(self):
@@ -19,13 +20,12 @@ class HandControlNode(Node):
 
         # Configuration
         self.sensitivity = 0.6 
-        self.linear_speed = 0.2
-        self.deadzone_deg = 5.0 # Degrees to ignore for straight driving
+        self.max_speed = 0.26
+        self.deadzone_deg = 5.0
 
     def run_loop(self):
         success, frame = self.cap.read()
         if not success: return
-
         frame = cv2.flip(frame, 1)
         h, w, _ = frame.shape
         result = self.hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -33,43 +33,42 @@ class HandControlNode(Node):
         twist = Twist()
 
         if result.multi_hand_landmarks:
-            lms = result.multi_hand_landmarks[0]
-            self.mp_draw.draw_landmarks(frame, lms, self.mp_hands.HAND_CONNECTIONS)
+            lms = result.multi_hand_landmarks[0].landmark
+            self.mp_draw.draw_landmarks(frame, result.multi_hand_landmarks[0], self.mp_hands.HAND_CONNECTIONS)
 
-            # Finger Count Logic
-            fingers = sum(1 for t, p in zip([8,12,16,20], [6,10,14,18]) 
-                         if lms.landmark[t].y < lms.landmark[p].y)
+            # 1. Modulation Logic: Distance from Wrist (0) to Middle Finger Tip (12)
+            wrist = lms[0]
+            middle_tip = lms[12]
+            dist = math.sqrt((middle_tip.x - wrist.x)**2 + (middle_tip.y - wrist.y)**2)
             
-            # Gesture and Movement Logic
-            if fingers >= 3:
-                gesture_text = "MOVE (OPEN)"
-                color = (0, 255, 0) # Green
-                
-                # Calculate Steering only if hand is open
-                wrist, tip = lms.landmark[0], lms.landmark[12]
-                angle_rad = math.atan2(tip.x - wrist.x, -(tip.y - wrist.y))
-                angle_deg = math.degrees(angle_rad)
-                
-                # Apply Deadzone
+            # Map distance (closed ~0.15 to open ~0.45) to speed
+            # These values might need slight tuning based on your distance from camera
+            speed = np.interp(dist, [0.2, 0.45], [0.0, self.max_speed])
+            
+            # 2. Steering Logic
+            angle_rad = math.atan2(middle_tip.x - wrist.x, -(middle_tip.y - wrist.y))
+            angle_deg = math.degrees(angle_rad)
+
+            # 3. Stop Condition (Fist check)
+            fingers_open = sum(1 for t, p in zip([8,12,16,20], [6,10,14,18]) if lms[t].y < lms[p].y)
+            
+            if fingers_open > 0:
+                twist.linear.x = float(speed)
                 if abs(angle_deg) > self.deadzone_deg:
                     twist.angular.z = -angle_rad * (self.sensitivity * 5.0)
-                
-                twist.linear.x = self.linear_speed
-                
-                # Draw steering line
-                p1 = (int(wrist.x * w), int(wrist.y * h))
-                p2 = (int(tip.x * w), int(tip.y * h))
-                cv2.line(frame, p1, p2, (255, 0, 0), 3)
-                cv2.putText(frame, f"Steer: {angle_deg:.1f} deg", (10, 90), 1, 2, (255, 255, 0), 2)
+                state_text = f"Moving: {int((speed/self.max_speed)*100)}%"
+                color = (0, 255, 0)
             else:
-                gesture_text = "STOP (FIST)"
-                color = (0, 0, 255) # Red
-                # Twist values remain 0.0
-            
-            cv2.putText(frame, f"State: {gesture_text}", (10, 50), 1, 2, color, 2)
+                state_text = "STOPPED (FIST)"
+                color = (0, 0, 255)
+
+            # Visuals
+            cv2.putText(frame, state_text, (10, 50), 1, 2, color, 2)
+            cv2.putText(frame, f"Steer: {angle_deg:.1f} deg", (10, 90), 1, 2, (255, 255, 0), 2)
+            cv2.line(frame, (int(wrist.x*w), int(wrist.y*h)), (int(middle_tip.x*w), int(middle_tip.y*h)), (255, 0, 0), 3)
 
         self.publisher_.publish(twist)
-        cv2.imshow("TurtleBot Hand Control", frame)
+        cv2.imshow("Modulated Control", frame)
         cv2.waitKey(1)
 
 def main():
