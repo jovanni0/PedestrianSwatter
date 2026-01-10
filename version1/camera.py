@@ -23,6 +23,7 @@ class HandControlNode(Node):
         self.sensitivity = 0.2 
         self.max_speed = 0.8
         self.deadzone_deg = 5.0
+        self.hand_limit_deg = 30.0 # Steering caps at this hand tilt
         
         # Play/Pause Logic
         self.is_paused = True
@@ -65,15 +66,23 @@ class HandControlNode(Node):
                 wrist = lms[0]
                 tips = [8, 12, 16, 20]
                 knuckles = [5, 9, 13, 17]
-                base_dist = sum([math.sqrt((lms[i].x - wrist.x)**2 + (lms[i].y - wrist.y)**2) for i in knuckles]) / 4
-                tip_dist = sum([math.sqrt((lms[i].x - wrist.x)**2 + (lms[i].y - wrist.y)**2) for i in tips]) / 4
+                base_dist = sum([math.sqrt((lms[i].x-wrist.x)**2 + (lms[i].y-wrist.y)**2) for i in knuckles]) / 4
+                tip_dist = sum([math.sqrt((lms[i].x-wrist.x)**2 + (lms[i].y-wrist.y)**2) for i in tips]) / 4
 
                 speed = np.interp(tip_dist, [base_dist * 1.1, base_dist * 1.8], [0.0, self.max_speed])
+                
+                # Capped Steering
                 angle_rad = math.atan2(lms[12].x - wrist.x, -(lms[12].y - wrist.y))
+                angle_deg = math.degrees(angle_rad)
+                
+                # Clip input to the limit and scale sensitivity for faster response
+                capped_angle_deg = np.clip(angle_deg, -self.hand_limit_deg, self.hand_limit_deg)
+                capped_angle_rad = math.radians(capped_angle_deg)
                 
                 if speed > 0.01:
                     twist.linear.x = float(speed)
-                    twist.angular.z = -angle_rad * (self.sensitivity * 2.0)
+                    # Increased multiplier (8.0) ensures max turn speed is reached at hand_limit_deg
+                    twist.angular.z = -capped_angle_rad * (self.sensitivity * 8.0)
 
             # 3. Visuals
             status_text = "LOCKED" if self.is_paused else "ACTIVE"
