@@ -39,6 +39,9 @@ class HandControlNode(Node):
         
         twist = Twist()
 
+        # Permanent HUD: Black Top Bar
+        cv2.rectangle(frame, (0, 0), (w, 60), (0, 0, 0), -1)
+
         if result.multi_hand_landmarks:
             lms = result.multi_hand_landmarks[0].landmark
             self.mp_draw.draw_landmarks(frame, result.multi_hand_landmarks[0], self.mp_hands.HAND_CONNECTIONS)
@@ -77,26 +80,30 @@ class HandControlNode(Node):
                 
                 # Clip input to the limit and scale sensitivity for faster response
                 capped_angle_deg = np.clip(angle_deg, -self.hand_limit_deg, self.hand_limit_deg)
-                capped_angle_rad = math.radians(capped_angle_deg)
                 
                 if speed > 0.01:
                     twist.linear.x = float(speed)
-                    # Increased multiplier (8.0) ensures max turn speed is reached at hand_limit_deg
-                    twist.angular.z = -capped_angle_rad * (self.sensitivity * 8.0)
+                    twist.angular.z = -math.radians(capped_angle_deg) * (self.sensitivity * 8.0)
 
-            # 3. Visuals
-            status_text = "LOCKED" if self.is_paused else "ACTIVE"
-            color = (0, 0, 255) if self.is_paused else (0, 255, 0)
-            cv2.putText(frame, status_text, (20, 50), 1, 2, color, 3)
-            
-            # Cooldown progress bar
-            elapsed = time.time() - self.last_toggle_time
-            if elapsed < self.cooldown_duration:
-                bar_w = int((elapsed / self.cooldown_duration) * 200)
-                cv2.rectangle(frame, (20, 70), (20 + bar_w, 80), (255, 255, 0), -1)
+                # Active HUD elements
+                speed_pct = int((speed / self.max_speed) * 100)
+                steer_pct = int((capped_angle_deg / self.hand_limit_deg) * 100)
+                cv2.putText(frame, f"SPD: {speed_pct}%", (w - 320, 40), 1, 1.8, (255, 255, 255), 2)
+                cv2.putText(frame, f"STR: {steer_pct}%", (w - 160, 40), 1, 1.8, (255, 255, 255), 2)
+
+        # Permanent Status Display
+        status_text = "LOCKED" if self.is_paused else "ACTIVE"
+        color = (0, 0, 255) if self.is_paused else (0, 255, 0)
+        cv2.putText(frame, f"STATUS: {status_text}", (20, 40), 1, 1.8, color, 2)
+        
+        # Cooldown Indicator
+        elapsed = time.time() - self.last_toggle_time
+        if elapsed < self.cooldown_duration:
+            bar_w = int((elapsed / self.cooldown_duration) * 150)
+            cv2.rectangle(frame, (20, 50), (20 + bar_w, 55), (255, 255, 0), -1)
 
         self.publisher_.publish(twist)
-        cv2.imshow("Strict Hand Control", frame)
+        cv2.imshow("WafflePi HUD", frame)
         cv2.waitKey(1)
 
 def main():
