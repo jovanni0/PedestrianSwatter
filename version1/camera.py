@@ -24,6 +24,7 @@ class HandControlNode(Node):
         self.max_speed = 0.8
         self.deadzone_deg = 5.0
         self.hand_limit_deg = 30.0 # Steering caps at this hand tilt
+        self.forward_percentage = 0.8 # how big to be the reverse zone
         
         # Play/Pause Logic
         self.is_paused = True
@@ -48,8 +49,8 @@ class HandControlNode(Node):
         cv2.rectangle(frame, (0, 0), (w, 60), (0, 0, 0), -1)
 
         # Suggestion 4: Visual separator for Reverse (at 70% height)
-        cv2.line(frame, (0, int(h * 0.7)), (w, int(h * 0.7)), (255, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(frame, "REVERSE ZONE", (10, int(h * 0.7) + 20), 1, 1, (255, 255, 255), 1)
+        cv2.line(frame, (0, int(h * self.forward_percentage)), (w, int(h * self.forward_percentage)), (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(frame, "REVERSE ZONE", (10, int(h * self.forward_percentage) + 20), 1, 1, (255, 255, 255), 1)
 
         if result.multi_hand_landmarks:
             lms = result.multi_hand_landmarks[0].landmark
@@ -82,7 +83,7 @@ class HandControlNode(Node):
                 tip_dist = sum([math.sqrt((lms[i].x-wrist.x)**2 + (lms[i].y-wrist.y)**2) for i in tips]) / 4
 
                 # Suggestion 4: Vertical Reverse (Wrist in bottom 30% of image)
-                direction = -1.0 if wrist.y > 0.7 else 1.0
+                direction = -1.0 if wrist.y > self.forward_percentage else 1.0
                 speed = np.interp(tip_dist, [base_dist * 1.1, base_dist * 1.8], [0.0, self.max_speed])
                 
                 # Capped Steering
