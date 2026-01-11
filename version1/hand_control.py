@@ -14,7 +14,15 @@ class HandControlNode(Node):
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel_manual', 10)
         self.timer = self.create_timer(0.033, self.run_loop)
 
-        self.cap = cv2.VideoCapture(0)
+        for i in range(10):
+            self.cap = cv2.VideoCapture(i)
+            if self.cap.isOpened():
+                print(f"Camera found at index: {i}")
+                break
+                # self.cap.release()
+        # self.cap = cv2.VideoCapture(0)
+
+
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(min_detection_confidence=0.8, max_num_hands=1)
         self.mp_draw = mp.solutions.drawing_utils

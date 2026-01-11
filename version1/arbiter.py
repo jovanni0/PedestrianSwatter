@@ -6,45 +6,45 @@ import time
 class CmdVelArbiter(Node):
     def __init__(self):
         super().__init__('cmd_vel_arbiter')
-        
-        # Subscribers
-        self.auto_sub = self.create_subscription(Twist, '/cmd_vel_auto', self.auto_cb, 10)
-        self.manual_sub = self.create_subscription(Twist, '/cmd_vel_manual', self.manual_cb, 10)
-        
-        # Publisher to the real robot
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-
-        # State
-        self.last_manual_msg = Twist()
+        
+        # Subscriptions
+        self.create_subscription(Twist, '/cmd_vel_auto', self.auto_cb, 10)
+        self.create_subscription(Twist, '/cmd_vel_manual', self.manual_cb, 10)
+        self.create_subscription(Twist, '/cmd_vel_stop', self.stop_cb, 10)
+        
+        # Timestamps for activity tracking
         self.last_manual_time = 0
-        self.manual_timeout = 0.5 # Seconds before reverting to auto
+        self.last_stop_time = 0
+        
+        self.manual_timeout = 0.5
+        self.stop_timeout = 0.2
+
+    def stop_cb(self, msg):
+        """Highest Priority: Always publish stop if received."""
+        self.last_stop_time = time.time()
+        self.cmd_pub.publish(msg)
 
     def manual_cb(self, msg):
-        # Update manual state if there is actual input (moving)
+        """Medium Priority: Publish only if no Stop signal is active."""
+        now = time.time()
         if abs(msg.linear.x) > 0.01 or abs(msg.angular.z) > 0.01:
-            self.last_manual_time = time.time()
-        self.last_manual_msg = msg
-        self.decide_and_publish()
+            self.last_manual_time = now
+            
+            # Check priority: Is the stop node quiet?
+            if (now - self.last_stop_time) > self.stop_timeout:
+                self.cmd_pub.publish(msg)
 
     def auto_cb(self, msg):
-        # Only publish auto if manual hasn't been used recently
-        if (time.time() - self.last_manual_time) > self.manual_timeout:
+        """Lowest Priority: Publish only if Stop and Manual are both quiet."""
+        now = time.time()
+        if (now - self.last_stop_time > self.stop_timeout) and \
+           (now - self.last_manual_time > self.manual_timeout):
             self.cmd_pub.publish(msg)
-
-    def decide_and_publish(self):
-        # If manual is fresh, it takes over immediately
-        if (time.time() - self.last_manual_time) <= self.manual_timeout:
-            self.cmd_pub.publish(self.last_manual_msg)
 
 def main():
     rclpy.init()
-    node = CmdVelArbiter()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    node.destroy_node()
+    rclpy.spin(CmdVelArbiter())
     rclpy.shutdown()
 
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__': main()
