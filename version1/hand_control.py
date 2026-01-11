@@ -29,9 +29,9 @@ class HandControlNode(Node):
 
         # Config
         self.sensitivity = 0.2 
-        self.max_speed = 0.8
-        self.deadzone_deg = 5.0
-        self.hand_limit_deg = 30.0 # Steering caps at this hand tilt
+        self.max_speed = 0.4
+        self.deadzone_deg = 10.0
+        self.hand_limit_deg = 60.0 # Steering caps at this hand tilt
         self.forward_percentage = 0.8 # how big to be the reverse zone
         
         # Play/Pause Logic
