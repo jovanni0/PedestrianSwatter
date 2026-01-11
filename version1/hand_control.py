@@ -11,7 +11,7 @@ import time
 class HandControlNode(Node):
     def __init__(self):
         super().__init__('hand_control_node')
-        self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.publisher_ = self.create_publisher(Twist, '/cmd_vel_manual', 10)
         self.timer = self.create_timer(0.033, self.run_loop)
 
         self.cap = cv2.VideoCapture(0)

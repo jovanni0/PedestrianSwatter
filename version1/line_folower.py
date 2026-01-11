@@ -25,7 +25,7 @@ class LineFollowerFinal(Node):
     def __init__(self):
         super().__init__('LaneKeeperNode')
         self.subscription = self.create_subscription(Image, '/camera/image_raw', self.listener_callback, 10)
-        self.publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.publisher = self.create_publisher(Twist, '/cmd_vel_auto', 10)
         self.bridge = CvBridge()
         
         self.last_choice_time = 0
