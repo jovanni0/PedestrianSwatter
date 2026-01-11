@@ -9,10 +9,10 @@ import random
 import time
 
 # --- CONFIGURATION ---
-LINEAR_SPEED = 0.4
-ANGULAR_GAIN = 65.0
-COOLDOWN_TIME = 5.0
-DECISION_DELAY = 1.0        
+LINEAR_SPEED = 0.3
+ANGULAR_GAIN = 80.0
+COOLDOWN_TIME = 3.0
+DECISION_DELAY = 0.50        
 MIN_AREA = 180
 LOWER_PURPLE = [110, 40, 40]
 UPPER_PURPLE = [155, 255, 255]
@@ -72,6 +72,8 @@ class LineFollowerFinal(Node):
                             key=lambda c: cv2.moments(c)['m10']/cv2.moments(c)['m00'] if cv2.moments(c)['m00'] > 0 else 0)
 
         msg = Twist()
+        line_found = False
+
         if valid_track:
             # SAFETY: Ensure index exists
             idx = 0 if self.target_side == "left" or len(valid_track) == 1 else -1
@@ -79,14 +81,29 @@ class LineFollowerFinal(Node):
                 M = cv2.moments(valid_track[idx])
                 if M['m00'] > 0:
                     cx = int(M['m10']/M['m00'])
-                    msg.linear.x = LINEAR_SPEED
-                    msg.angular.z = -float(cx - w/2) / ANGULAR_GAIN
-                    cv2.drawContours(frame, [valid_track[idx]], -1, (0, 255, 0), 3)
+
+                    # Validation: Don't snap to a line on the opposite side of our lock
+                    is_valid = True
+                    if self.target_side == "left" and cx > (w * 0.6): is_valid = False
+                    if self.target_side == "right" and cx < (w * 0.4): is_valid = False
+
+                    if is_valid:
+                        msg.linear.x = LINEAR_SPEED
+                        msg.angular.z = -float(cx - w/2) / ANGULAR_GAIN
+                        cv2.drawContours(frame, [valid_track[idx]], -1, (0, 255, 0), 3)
+                        line_found = True
             except IndexError:
                 pass 
-        else:
+
+        if not line_found:
+            # --- RECOVERY SPIN ---
+            # If line lost, spin in the direction of our last decision
             msg.linear.x = 0.0
             msg.angular.z = 0.4 if self.target_side == "left" else -0.4
+
+        # Reset target side once cooldown expires
+        if cooldown_rem <= 0:
+            self.target_side = "center"
 
         # --- HUD ENHANCEMENTS ---
         # Draw Selection Zone Contours in Yellow
