@@ -16,8 +16,11 @@ class IntegratedStopNode(Node):
         self.bridge = CvBridge()
         
         self.model = YOLO('yolo11n.pt') 
-        self.LOWER_WHITE = np.array([0, 0, 200])
-        self.UPPER_WHITE = np.array([180, 50, 255])
+        self.WHITE_RANGE = (np.array([0, 0, 180]), np.array([180, 50, 255]))
+        
+        # Broad Red Range
+        self.R_LOW1, self.R_HIGH1 = np.array([0, 50, 50]), np.array([10, 255, 255])
+        self.R_LOW2, self.R_HIGH2 = np.array([160, 50, 50]), np.array([180, 255, 255])
         
         self.sign_detected = False
         self.is_stopping = False
@@ -33,58 +36,47 @@ class IntegratedStopNode(Node):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         curr_time = time.time()
 
-        # 1. Sign Detection
-        sign_in_view = False
-        results = self.model(frame, conf=0.5, verbose=False)
+        # 1. Sign Detection (Front vs Back)
+        results = self.model(frame, conf=0.4, verbose=False)
         for r in results:
             for box in r.boxes:
-                if int(box.cls[0]) == 11: 
-                    sign_in_view = True
-                    self.sign_detected = True
-                    self.ready_timeout = curr_time + 10.0
-                        
+                if int(box.cls[0]) == 11:
+                    b = box.xyxy[0].cpu().numpy().astype(int)
+                    roi = hsv[max(0, b[1]):min(h, b[3]), max(0, b[0]):min(w, b[2])]
+                    
+                    red_mask = cv2.inRange(roi, self.R_LOW1, self.R_HIGH1) + \
+                               cv2.inRange(roi, self.R_LOW2, self.R_HIGH2)
+                    
+                    if cv2.countNonZero(red_mask) > 300: # Front detected
+                        self.sign_detected = True
+                        self.ready_timeout = curr_time + 10.0
+                        cv2.rectangle(frame, (b[0], b[1]), (b[2], b[3]), (0, 0, 255), 3) # Red Box
+                    else: # Back detected
+                        cv2.rectangle(frame, (b[0], b[1]), (b[2], b[3]), (0, 255, 255), 3) # Yellow Box
+
         # 2. Line Detection
-        roi_y1, roi_y2 = int(h*0.8), int(h*0.95)
-        roi_x1, roi_x2 = int(w*0.3), int(w*0.7)
-        roi = hsv[roi_y1:roi_y2, roi_x1:roi_x2]
-        mask = cv2.inRange(roi, self.LOWER_WHITE, self.UPPER_WHITE)
-        white_pixels = cv2.countNonZero(mask)
-        line_detected = white_pixels > 1500
+        ry1, ry2, rx1, rx2 = int(h*0.8), int(h*0.95), int(w*0.3), int(w*0.7)
+        mask = cv2.inRange(hsv[ry1:ry2, rx1:rx2], self.WHITE_RANGE[0], self.WHITE_RANGE[1])
+        line_detected = cv2.countNonZero(mask) > 1200
+        if line_detected:
+            frame[ry1:ry2, rx1:rx2][mask > 0] = (0, 255, 0)
 
-        # 3. Logic & HUD Colors
+        # 3. HUD & Logic
         if curr_time > self.ready_timeout: self.sign_detected = False
-        
-        armed = self.sign_detected
-        active_stop = self.is_stopping
 
-        if armed and line_detected and not active_stop:
-            self.is_stopping = True
-            self.stop_start_time = curr_time
-            self.sign_detected = False 
+        status = "ARMED" if self.sign_detected else "SEARCHING"
+        color = (0, 255, 255) if self.sign_detected else (255, 255, 255)
+        if not self.is_stopping:
+            cv2.putText(frame, status, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
-        # 4. Publication
-        if active_stop:
+        if self.sign_detected and line_detected and not self.is_stopping:
+            self.is_stopping, self.stop_start_time, self.sign_detected = True, curr_time, False
+
+        if self.is_stopping:
             if curr_time - self.stop_start_time < 3.0:
                 self.pub.publish(Twist())
-            else:
-                self.is_stopping = False
-
-        # --- HUD RENDERING ---
-        # Draw ROI Box
-        cv2.rectangle(frame, (roi_x1, roi_y1), (roi_x2, roi_y2), (255, 0, 0), 2)
-        
-        # Status Indicators
-        def draw_status(label, active, pos, color_on=(0, 255, 0)):
-            color = color_on if active else (50, 50, 50)
-            cv2.putText(frame, label, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-
-        draw_status("SIGN IN VIEW", sign_in_view, (20, 30))
-        draw_status("ARMED (WAITING FOR LINE)", armed, (20, 60), (0, 255, 255))
-        draw_status("LINE DETECTED", line_detected, (20, 90))
-        
-        if active_stop:
-            cv2.rectangle(frame, (0, 0), (w, h), (0, 0, 255), 10)
-            cv2.putText(frame, "STOPPING", (int(w/2)-80, int(h/2)), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+                cv2.rectangle(frame, (0,0), (w,h), (0,0,255), 15)
+            else: self.is_stopping = False
 
         cv2.imshow("Robot HUD", frame)
         cv2.waitKey(1)
@@ -92,10 +84,8 @@ class IntegratedStopNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = IntegratedStopNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+    try: rclpy.spin(node)
+    except KeyboardInterrupt: pass
     finally:
         cv2.destroyAllWindows()
         node.destroy_node()
