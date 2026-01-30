@@ -3,48 +3,77 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 import time
 
-class CmdVelArbiter(Node):
+
+class CommandArbiterNode(Node):
     def __init__(self):
-        super().__init__('cmd_vel_arbiter')
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        super().__init__("command_arbiter")
+
+        self.createLinks()
         
-        # Subscriptions
-        self.create_subscription(Twist, '/cmd_vel_auto', self.auto_cb, 10)
-        self.create_subscription(Twist, '/cmd_vel_manual', self.manual_cb, 10)
-        self.create_subscription(Twist, '/cmd_vel_stop', self.stop_cb, 10)
-        
-        # Timestamps for activity tracking
         self.last_manual_time = 0
         self.last_stop_time = 0
         
         self.manual_timeout = 0.5
         self.stop_timeout = 0.2
 
-    def stop_cb(self, msg):
-        """Highest Priority: Always publish stop if received."""
+        print("[INFO] Command Arbiter node up and running. Awayting interrupt (Ctrl + C)...")
+
+
+    def createLinks(self):
+        """
+        publish and subscribe the necessary topics.
+        """
+
+        self.cmd_publisher = self.create_publisher(Twist, "/cmd_vel", 10)
+        
+        self.create_subscription(Twist, '/cmd_vel_auto', self.autoDrivingCallback, 10)
+        self.create_subscription(Twist, '/cmd_vel_manual', self.handControlCallback, 10)
+        self.create_subscription(Twist, '/cmd_vel_stop', self.signStopCallback, 10)
+        
+
+    def signStopCallback(self, msg):
+        """
+            handles messages published by the stop detection node.
+
+            this callback has the highest priority and will stop the bot no matter if it drives automatically or is controlled.
+        """
+
         self.last_stop_time = time.time()
-        self.cmd_pub.publish(msg)
+        self.cmd_publisher.publish(msg)
 
-    def manual_cb(self, msg):
-        """Medium Priority: Publish only if no Stop signal is active."""
-        now = time.time()
+
+    def handControlCallback(self, msg):
+        """
+            handles messages published by the hand control node.
+
+            has priority over the auto driving node, but is overtaken by the stop detection node.
+        """
+
+        current_time = time.time()
+
+        # priority check: make sure the stop node is quiet
+        if (current_time - self.last_stop_time) <= self.stop_timeout:
+            return
+        
         if abs(msg.linear.x) > 0.01 or abs(msg.angular.z) > 0.01:
-            self.last_manual_time = now
-            
-            # Check priority: Is the stop node quiet?
-            if (now - self.last_stop_time) > self.stop_timeout:
-                self.cmd_pub.publish(msg)
+            self.last_manual_time = current_time 
+            self.cmd_publisher.publish(msg)
 
-    def auto_cb(self, msg):
-        """Lowest Priority: Publish only if Stop and Manual are both quiet."""
+
+    def autoDrivingCallback(self, msg):
+        """
+            handles messages published by the auto driving node.
+
+            has the lowest priority.
+        """
         now = time.time()
         if (now - self.last_stop_time > self.stop_timeout) and \
            (now - self.last_manual_time > self.manual_timeout):
-            self.cmd_pub.publish(msg)
+            self.cmd_publisher.publish(msg)
 
-def main():
+
+
+if __name__ == '__main__':
     rclpy.init()
-    rclpy.spin(CmdVelArbiter())
+    rclpy.spin(CommandArbiterNode())
     rclpy.shutdown()
-
-if __name__ == '__main__': main()

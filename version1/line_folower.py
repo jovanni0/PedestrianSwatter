@@ -8,7 +8,8 @@ import numpy as np
 import random
 import time
 
-# --- CONFIGURATION ---
+
+
 LINEAR_SPEED = 0.3
 ANGULAR_GAIN = 80.0
 COOLDOWN_TIME = 3.0
@@ -19,12 +20,15 @@ UPPER_PURPLE = [155, 255, 255]
 
 TRACK_START, TRACK_END = 0.80, 1.0
 LOOK_START,  LOOK_END  = 0.66, 0.79
-# ---------------------
 
-class LineFollowerFinal(Node):
+
+
+class LineFollowerNode(Node):
+
     def __init__(self):
-        super().__init__('LaneKeeperNode')
-        self.subscription = self.create_subscription(Image, '/camera/image_raw', self.listener_callback, 10)
+        super().__init__("line_folower")
+
+        self.subscription = self.create_subscription(Image, '/camera/image_raw', self.imageCallback, 10)
         self.publisher = self.create_publisher(Twist, '/cmd_vel_auto', 10)
         self.bridge = CvBridge()
         
@@ -32,14 +36,15 @@ class LineFollowerFinal(Node):
         self.branch_seen_start = 0
         self.target_side = "center" 
 
-    def listener_callback(self, data):
+
+    def imageCallback(self, data):
         frame = self.bridge.imgmsg_to_cv2(data, 'bgr8')
         h, w, _ = frame.shape
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, np.array(LOWER_PURPLE), np.array(UPPER_PURPLE))
         curr_time = time.time()
 
-        # --- SELECTION ZONE ---
+        # lane selection zone
         look_mask = np.zeros_like(mask)
         look_mask[int(h*LOOK_START):int(h*LOOK_END), :] = 255
         look_res = cv2.bitwise_and(mask, look_mask)
@@ -48,7 +53,7 @@ class LineFollowerFinal(Node):
 
         cooldown_rem = max(0, COOLDOWN_TIME - (curr_time - self.last_choice_time))
 
-        # Branch Logic & Countdown Calculation
+        # brach logic
         decision_timer = 0
         if len(valid_look) >= 2 and cooldown_rem <= 0:
             if self.branch_seen_start == 0:
@@ -63,7 +68,7 @@ class LineFollowerFinal(Node):
         else:
             self.branch_seen_start = 0
 
-        # --- TRACKING ZONE ---
+        # lane tracking
         track_mask = np.zeros_like(mask)
         track_mask[int(h*TRACK_START):int(h*TRACK_END), :] = 255
         track_res = cv2.bitwise_and(mask, track_mask)
@@ -75,7 +80,6 @@ class LineFollowerFinal(Node):
         line_found = False
 
         if valid_track:
-            # SAFETY: Ensure index exists
             idx = 0 if self.target_side == "left" or len(valid_track) == 1 else -1
             try:
                 M = cv2.moments(valid_track[idx])
@@ -132,7 +136,7 @@ class LineFollowerFinal(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = LineFollowerFinal()
+    node = LineFollowerNode()
     try: rclpy.spin(node)
     except KeyboardInterrupt: pass
     finally:
