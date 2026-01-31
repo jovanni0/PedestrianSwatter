@@ -1,8 +1,10 @@
 
 
 # launch Gazebo with world and turtlebot
+```bash
 export TURTLEBOT3_MODEL=waffle_pi
-ros2 launch turtlebot3_gazebo empty_world.launch.py
+ros2 launch src/version1/launch/launch.py
+```
 
 
 # do this before lunching any node
