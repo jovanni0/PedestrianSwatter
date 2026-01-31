@@ -11,7 +11,7 @@ def generate_launch_description():
     pkg_tb3_gazebo = get_package_share_directory('turtlebot3_gazebo')
 
     launch_dir = os.path.dirname(os.path.realpath(__file__))
-    world = os.path.join(launch_dir, '..', 'worlds', 'track.world')
+    world = os.path.join(launch_dir, '..', 'worlds', 'track-v2.world')
 
     gzserver_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_gazebo_ros, 'launch', 'gzserver.launch.py')),

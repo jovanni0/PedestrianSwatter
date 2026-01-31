@@ -11,6 +11,7 @@ import time
 
 
 LINEAR_SPEED = 0.3
+DECISION_SPEED = 0.15
 ANGULAR_GAIN = 80.0
 COOLDOWN_TIME = 3.0
 DECISION_DELAY = 0.50        
@@ -19,9 +20,7 @@ LOWER_PURPLE = [110, 40, 40]
 UPPER_PURPLE = [155, 255, 255]
 
 TRACK_START, TRACK_END = 0.80, 1.0
-LOOK_START,  LOOK_END  = 0.66, 0.79
-
-
+LOOK_START,  LOOK_END  = 0.5, 0.79
 
 class LineFollowerNode(Node):
 
@@ -43,24 +42,34 @@ class LineFollowerNode(Node):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, np.array(LOWER_PURPLE), np.array(UPPER_PURPLE))
         curr_time = time.time()
+        cooldown_rem = max(0, COOLDOWN_TIME - (curr_time - self.last_choice_time))
 
         # lane selection zone
         look_mask = np.zeros_like(mask)
         look_mask[int(h*LOOK_START):int(h*LOOK_END), :] = 255
         look_res = cv2.bitwise_and(mask, look_mask)
         l_cnts, _ = cv2.findContours(look_res, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        valid_look = [c for c in l_cnts if cv2.contourArea(c) > MIN_AREA]
+        
+        # Filter: Ignore the line directly in front of the bot to only count NEW branches
+        valid_look = []
+        for c in l_cnts:
+            if cv2.contourArea(c) > MIN_AREA:
+                M = cv2.moments(c)
+                if M['m00'] > 0:
+                    cx = M['m10']/M['m00']
+                    # Widened ignore zone (0.35 - 0.65) to stop flickering from main line
+                    if not (w*0.35 < cx < w*0.65):
+                        valid_look.append(c)
 
-        cooldown_rem = max(0, COOLDOWN_TIME - (curr_time - self.last_choice_time))
-
-        # brach logic
         decision_timer = 0
+        linear_to_use = LINEAR_SPEED
+
         if len(valid_look) >= 2 and cooldown_rem <= 0:
             if self.branch_seen_start == 0:
                 self.branch_seen_start = curr_time
             
             decision_timer = DECISION_DELAY - (curr_time - self.branch_seen_start)
-            
+            linear_to_use = DECISION_SPEED
             if decision_timer <= 0:
                 self.target_side = "left" if random.random() < 0.5 else "right"
                 self.last_choice_time = curr_time
@@ -80,6 +89,14 @@ class LineFollowerNode(Node):
         line_found = False
 
         if valid_track:
+            # Memory Lock: Only update target_side if we aren't currently 
+            # deciding or in cooldown from a previous choice.
+            if cooldown_rem <= 0 and self.branch_seen_start == 0:
+                M_temp = cv2.moments(valid_track[0])
+                if M_temp['m00'] > 0:
+                    cx_temp = M_temp['m10']/M_temp['m00']
+                    self.target_side = "left" if cx_temp < w/2 else "right"
+
             idx = 0 if self.target_side == "left" or len(valid_track) == 1 else -1
             try:
                 M = cv2.moments(valid_track[idx])
@@ -90,14 +107,11 @@ class LineFollowerNode(Node):
                     is_valid = True
                     if self.target_side == "left" and cx > (w * 0.6): is_valid = False
                     if self.target_side == "right" and cx < (w * 0.4): is_valid = False
-
                     if is_valid:
-                        msg.linear.x = LINEAR_SPEED
-                        msg.angular.z = -float(cx - w/2) / ANGULAR_GAIN
+                        msg.linear.x, msg.angular.z = linear_to_use, -float(cx - w/2) / ANGULAR_GAIN
                         cv2.drawContours(frame, [valid_track[idx]], -1, (0, 255, 0), 3)
                         line_found = True
-            except IndexError:
-                pass 
+            except: pass
 
         if not line_found:
             # --- RECOVERY SPIN ---
