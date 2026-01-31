@@ -3,7 +3,7 @@
 # launch Gazebo with world and turtlebot
 ```bash
 export TURTLEBOT3_MODEL=waffle_pi
-ros2 launch src/version1/launch/launch.py
+ros2 launch src/brainrot/launch/launch.py
 ```
 
 
@@ -15,10 +15,10 @@ source ~/Desktop/psd_v1/install/setup.sh
 
 
 # launch the hand control node
-python3 src/version1/version1/hand_control.py
+python3 src/brainrot/brainrot/hand_control.py
 
-python3 src/version1/version1/line_folower.py
+python3 src/brainrot/brainrot/line_folower.py
 
-python3 src/version1/version1/arbiter.py
+python3 src/brainrot/brainrot/arbiter.py
 
-python3 src/version1/version1/stop_line.py
+python3 src/brainrot/brainrot/stop_line.py

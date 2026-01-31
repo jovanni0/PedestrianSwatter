@@ -2,7 +2,7 @@ import os
 from glob import glob
 from setuptools import setup
 
-package_name = 'version1'
+package_name = 'brainrot'
 
 setup(
     name=package_name,
@@ -26,7 +26,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'camera_node = version1.camera:main',
+            'camera_node = brainrot.camera:main',
         ],
     },
 )
