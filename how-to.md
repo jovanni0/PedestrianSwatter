@@ -14,11 +14,13 @@ source /opt/ros/humble/setup.bash
 source ~/Desktop/psd_v1/install/setup.sh
 
 
-# launch the hand control node
-python3 src/brainrot/brainrot/hand_control.py
+# launch the nodes
+```bash
+python3 src/brainrot/brainrot/arbiter.py
 
 python3 src/brainrot/brainrot/line_folower.py
 
-python3 src/brainrot/brainrot/arbiter.py
-
 python3 src/brainrot/brainrot/stop_line.py
+
+python3 src/brainrot/brainrot/hand_control.py
+```
