@@ -29,6 +29,9 @@ class VisionProcessor:
 
 
     def detectStopSign(self, frame, hsv):
+        """
+            detects stop signs in images.
+        """
         results = self.model(frame, conf=0.4, verbose=False)
         h, w = frame.shape[:2]
         
@@ -51,8 +54,10 @@ class AutomaticStopNode(Node):
 
     def __init__(self):
         super().__init__("automatic_stop")
+
         self.sub = self.create_subscription(Image, '/camera/image_raw', self.imageCallback, 10)
         self.pub = self.create_publisher(Twist, '/cmd_vel_stop', 10)
+
         self.bridge = CvBridge()
         self.vision = VisionProcessor()
         
@@ -64,6 +69,9 @@ class AutomaticStopNode(Node):
 
 
     def imageCallback(self, data):
+        """
+            handle image processing for stop sign and line.
+        """
         try:
             frame = self.bridge.imgmsg_to_cv2(data, 'bgr8')
         except: 
@@ -74,7 +82,7 @@ class AutomaticStopNode(Node):
         now = time.time()
         in_cooldown = (now - self.last_stop_time) < COOLDOWN_TIME
 
-        # 1. Sign Logic
+        # sign detection
         if not self.is_stopping and not in_cooldown:
             found, is_red, box = self.vision.detectStopSign(frame, hsv)
             if found:
@@ -84,7 +92,7 @@ class AutomaticStopNode(Node):
                     self.sign_detected = True
                     self.ready_expiry = now + READY_TIMEOUT
 
-        # 2. Line Logic
+        # line detection
         ry1, ry2, rx1, rx2 = int(h*0.8), int(h*0.95), int(w*0.3), int(w*0.7)
         line_roi = hsv[ry1:ry2, rx1:rx2]
         line_mask = cv2.inRange(line_roi, *self.vision.white_range)
@@ -93,8 +101,8 @@ class AutomaticStopNode(Node):
         if line_detected:
             frame[ry1:ry2, rx1:rx2][line_mask > 0] = (0, 255, 0)
 
-        # 3. State Transitions
-        if now > self.ready_expiry: self.sign_detected = False
+        if now > self.ready_expiry: 
+            self.sign_detected = False
 
         if self.sign_detected and line_detected and not self.is_stopping:
             self.is_stopping, self.stop_start_time, self.sign_detected = True, now, False
@@ -107,6 +115,9 @@ class AutomaticStopNode(Node):
 
 
     def handleStopping(self, frame, now, w, h):
+        """
+            handle the stop event.
+        """
         if self.is_stopping:
             if now - self.stop_start_time < STOP_DURATION:
                 self.pub.publish(Twist())
@@ -117,6 +128,9 @@ class AutomaticStopNode(Node):
 
 
     def drawHud(self, frame, in_cooldown):
+        """
+            handle the HUD updates.
+        """
         if self.is_stopping: status, color = "STOPPING", (0, 0, 255)
         elif in_cooldown: status, color = "COOLDOWN", (255, 0, 0)
         elif self.sign_detected: status, color = "ARMED", (0, 255, 255)
