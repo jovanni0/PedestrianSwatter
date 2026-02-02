@@ -22,6 +22,8 @@ UPPER_PURPLE = [155, 255, 255]
 TRACK_START, TRACK_END = 0.80, 1.0
 LOOK_START,  LOOK_END  = 0.5, 0.79
 
+
+
 class LineFollowerNode(Node):
 
     def __init__(self):
@@ -50,14 +52,12 @@ class LineFollowerNode(Node):
         look_res = cv2.bitwise_and(mask, look_mask)
         l_cnts, _ = cv2.findContours(look_res, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Filter: Ignore the line directly in front of the bot to only count NEW branches
         valid_look = []
         for c in l_cnts:
             if cv2.contourArea(c) > MIN_AREA:
                 M = cv2.moments(c)
                 if M['m00'] > 0:
                     cx = M['m10']/M['m00']
-                    # Widened ignore zone (0.35 - 0.65) to stop flickering from main line
                     if not (w*0.35 < cx < w*0.65):
                         valid_look.append(c)
 
@@ -89,8 +89,6 @@ class LineFollowerNode(Node):
         line_found = False
 
         if valid_track:
-            # Memory Lock: Only update target_side if we aren't currently 
-            # deciding or in cooldown from a previous choice.
             if cooldown_rem <= 0 and self.branch_seen_start == 0:
                 M_temp = cv2.moments(valid_track[0])
                 if M_temp['m00'] > 0:
@@ -103,28 +101,39 @@ class LineFollowerNode(Node):
                 if M['m00'] > 0:
                     cx = int(M['m10']/M['m00'])
 
-                    # Validation: Don't snap to a line on the opposite side of our lock
                     is_valid = True
-                    if self.target_side == "left" and cx > (w * 0.6): is_valid = False
-                    if self.target_side == "right" and cx < (w * 0.4): is_valid = False
+                    if self.target_side == "left" and cx > (w * 0.6): 
+                        is_valid = False
+
+                    if self.target_side == "right" and cx < (w * 0.4): 
+                        is_valid = False
+
                     if is_valid:
                         msg.linear.x, msg.angular.z = linear_to_use, -float(cx - w/2) / ANGULAR_GAIN
                         cv2.drawContours(frame, [valid_track[idx]], -1, (0, 255, 0), 3)
                         line_found = True
-            except: pass
+            except: 
+                pass
 
+        # recovery spin
         if not line_found:
-            # --- RECOVERY SPIN ---
-            # If line lost, spin in the direction of our last decision
             msg.linear.x = 0.0
             msg.angular.z = 0.4 if self.target_side == "left" else -0.4
 
-        # Reset target side once cooldown expires
         if cooldown_rem <= 0:
             self.target_side = "center"
 
-        # --- HUD ENHANCEMENTS ---
-        # Draw Selection Zone Contours in Yellow
+        self.drawHud(frame, valid_look, decision_timer, cooldown_rem)
+
+        self.publisher.publish(msg)
+        cv2.imshow("LaneKeeper HUD", frame)
+        cv2.waitKey(1)
+
+
+    def drawHud(self, frame, valid_look, decision_timer, cooldown_rem):
+        """
+            draws the HUD over the image.
+        """
         for c in valid_look:
             cv2.drawContours(frame, [c], -1, (0, 255, 255), 2)
 
@@ -137,26 +146,25 @@ class LineFollowerNode(Node):
         cv2.rectangle(frame, (20, 50), (170, 60), (50, 50, 50), -1)
         cv2.rectangle(frame, (20, 50), (20 + bar_len, 60), (0, 255, 255), -1)
         
-        # Decision Timer (Red)
+        # decision timer
         if decision_timer > 0:
             timer_w = int((decision_timer / DECISION_DELAY) * 150)
             cv2.putText(frame, f"DECIDING IN: {decision_timer:.1f}s", (20, 85), 1, 1.2, (0, 0, 255), 2)
             cv2.rectangle(frame, (20, 95), (170, 105), (50, 50, 50), -1)
             cv2.rectangle(frame, (20, 95), (20 + timer_w, 105), (0, 0, 255), -1)
 
-        self.publisher.publish(msg)
-        cv2.imshow("LaneKeeper HUD", frame)
-        cv2.waitKey(1)
 
-def main(args=None):
-    rclpy.init(args=args)
+
+if __name__ == '__main__':
+    rclpy.init()
+
     node = LineFollowerNode()
-    try: rclpy.spin(node)
-    except KeyboardInterrupt: pass
+
+    try: 
+        rclpy.spin(node)
+    except KeyboardInterrupt: 
+        pass
     finally:
         cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()
-
-if __name__ == '__main__':
-    main()

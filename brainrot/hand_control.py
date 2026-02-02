@@ -40,7 +40,7 @@ class HandControlNode(Node):
         self.cooldown_duration = 2.0  # cooldown duration between the moment the enable sign is detected and when the commands are being read.
         self.movement_smoothing = 0.2  # how much the movement should be smoothed (0.1 = very smooth, 1.0 = no smoothing).
         self.steering_sensitivity = 0.2  # how sensitive the bot should be at steering input change.
-        self.steering_deadzone = 0.0  # a central deadzone for steering.
+        self.steering_deadzone = 10.0  # a central deadzone for steering.
         self.steering_offset = -10.0  # offsets the 0 position of the hand by the given degrees.
 
 
@@ -139,6 +139,9 @@ class HandControlNode(Node):
 
 
     def drawHandLandmarks(self, frame, hands_landmarks):
+        """
+            displys the landmarks of the detected hand overlayed the image.
+        """
         hand_landmarks = hands_landmarks[0].landmark
 
         self.hand_processor.mp_draw.draw_landmarks(
@@ -159,7 +162,6 @@ class HandControlNode(Node):
 
         cv2.line(frame, wrist_pix, (end_x, end_y), (0, 255, 255), 3) # Yellow line
         cv2.putText(frame, "ZERO", (end_x, end_y - 10), 1, 1, (0, 255, 255), 1)
-
 
 
     def putMessageOnImageCenter(self, frame, text, font = cv2.FONT_HERSHEY_SIMPLEX, scale = 1.0, color = (255, 255, 255), thickness = 2):
