@@ -1,0 +1,15 @@
+material TrackV1/Image
+{
+  technique
+  {
+    pass
+    {
+      texture_unit
+      {
+        texture track-v1.png
+        filtering anisotropic
+        max_anisotropy 16
+      }
+    }
+  }
+}

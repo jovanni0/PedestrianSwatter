@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="track-v2">
+    <static>true</static>
+    <link name="link">
+      <pose>0 0 0.01 0 0 0</pose>
+      <visual name="visual">
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <size>15.5 10</size> </plane>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://track-v2/materials/scripts</uri>
+            <uri>model://track-v2/materials/textures</uri>
+            <name>TrackV2/Image</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
